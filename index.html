@@ -1,0 +1,440 @@
+<!doctype html>
+
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dungeon Arcanum — Juego HTML Complejo</title>
+  <style>
+    :root{
+      --bg:; --panel:#4b88b6; --accent:#; --muted:#;
+      --tile-size:32px;
+      font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+    }
+    html,body{height:100%; margin:0; background:linear-gradient(10deg,#779ec8 20%,#c3e7e1  1000000%); color:#d7e6ef}
+    #app{display:grid; grid-template-columns:1fr 30px; gap:12px; height:100vh; padding:12px; box-sizing:border-box}
+    .game-wrap{position:relative; background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent); border-radius:12px; padding:12px}
+    canvas{background:#87cefa; display:block; width:100%; height:calc(100vh - 64px); border-radius:8px}
+    .sidebar{background:var(--panel); border-radius:12px; padding:12px; box-shadow:0 6px 20px rgba(0,0,0,0.6);}
+    h1{font-size:18px; margin:6px 0 10px}
+    .panel{background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent); border-radius:8px; padding:8px; margin-bottom:8px}
+    .stats{display:grid; grid-template-columns:1fr 1fr; gap:6px}
+    .btn{display:inline-block; padding:8px 10px; border-radius:8px; background:rgba(255,255,255,0.03); cursor:pointer; user-select:none}
+    .muted{color:var(--muted); font-size:13px}
+    .inventory{display:flex; flex-wrap:wrap; gap:6px}
+    .slot{width:48px; height:48px; background:rgba(255,255,255,0.03); border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:12px}
+    .log{max-height:160px; overflow:auto; font-size:13px}
+    .controls{display:flex; gap:6px; flex-wrap:wrap}
+    .footer{font-size:12px; color:var(--muted); margin-top:6px}
+    /* Responsive */
+    @media (max-width:500px){#app{grid-template-columns:1fr} canvas{height:60vh}}
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="game-wrap">
+      <canvas id="gameCanvas" width="1024" height="640"></canvas>
+      <div style="position:absolute; left:18px; top:18px; background:rgba(0,0,0,0.25); padding:8px; border-radius:8px">
+        <div id="hudDepth">Nivel: 1</div>
+        <div id="hudHP">HP: 30 / 30</div>
+      </div>
+      <div style="position:absolute; right:18px; top:18px; display:flex; gap:8px">
+        <div id="miniMap" style="width:0px; height:0px; background:rgba(255,255,255,0.03); border-radius:6px; padding:6px"></div>
+      </div>
+    </div>
+    <div class="sidebar">
+      <h1 style="color: #c9dba6;">Dungeon Arcanum</h1>
+      <div class="panel stats">
+        <div>
+          <div class="muted" style="color: #c9dba6;">Jugador</div>
+          <div id="playerName" style="color: #c9dba6;">Aventurero</div>
+        </div>
+        <div>
+          <div class="muted" style="color: #c9dba6;">Estado</div>
+          <div id="playerStatus" style="color: #c9dba6;">Explorando</div>
+        </div>
+      </div><div class="panel">
+    <div class="muted" style="color: #c9dba6;">Inventario</div>
+    <div class="inventory" id="inventory"></div>
+  </div>
+
+  <div class="panel" >
+    <div class="muted" style="color: #c9dba6;">Controles</div>
+    <div class="controls">
+      <div class="btn" id="btnUp">↓ </div>
+      <div class="btn" id="btnLeft">← </div>
+      <div class="btn" id="btnDown">↑ </div>
+      <div class="btn" id="btnRight">→ </div>
+      <div class="btn" id="btnAttack" style="color: #c9dba6;">Ataque</div>
+      <div class="btn" id="btnNextLevel" style="color: #c9dba6;">Bajar Nivel</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="muted" style="color: #c9dba6;">Registro</div>
+    <div class="log" id="log" style="color: #c9dba6;"></div>
+  </div>
+
+  <div class="panel">
+    <div class="muted"style="color: #c9dba6;">Opciones</div>
+    <div style="display:flex; gap:8px; margin-top:6px">
+      <div class="btn" id="btnSave"style="color: #c9dba6;">Guardar</div>
+      <div class="btn" id="btnLoad"style="color: #c9dba6;">Cargar</div>
+      <div class="btn" id="btnReset"style="color: #c9dba6;">Reset</div>
+    </div>
+    <div class="footer">Abrir en navegador moderno. Soporta teclado y pantalla táctil.</div>
+    
+    <h3 style="color: #c9dba6;">creador Elias David Atencia Yajure</h3>
+  </div>
+
+</div>
+
+  </div><script>
+/*
+  Dungeon Arcanum - Juego en un solo archivo
+  - Genera mazmorras con algoritmo BSP
+  - Jugador, enemigos con IA simple
+  - Sistema de inventario, items, combate, partículas, minimapa
+  - Guardado en localStorage
+  - Comentarios en español
+*/
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d', {alpha:false});
+let W = canvas.width, H = canvas.height;
+
+// Ajustes escala según CSS
+function resizeCanvas(){
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.floor(rect.width*devicePixelRatio);
+  canvas.height = Math.floor((rect.height)*devicePixelRatio);
+  ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  W = rect.width; H = rect.height;
+}
+window.addEventListener('resize', resizeCanvas); resizeCanvas();
+
+// --- Motor básico ---
+const TILE = 32; // tamaño lógico en px
+const MAP_W = 64; const MAP_H = 40; // tiles
+
+// Mapa: 0 = pared, 1 = suelo
+let map = new Uint8Array(MAP_W*MAP_H);
+
+// Entidades
+class Entity{
+  constructor(x,y){this.x=x;this.y=y;this.hp=10;this.maxHp=10;this.char='?';this.color='#eee3a6';}
+}
+let player;
+let enemies = [];
+let items = [];
+let particles = [];
+let level = 1;
+let rngSeed = Math.floor(Math.random()*1e9);
+
+// Util RNG simple
+function rand(){ rngSeed = (rngSeed * 1664525 + 1013904223) >>> 0; return rngSeed/0x100000000; }
+function randint(a,b){ return Math.floor(rand()*(b-a+1))+a; }
+
+// --- Generador BSP de mazmorra ---
+function generateDungeon(){
+  map.fill(0);
+  // Subdivisión recursiva sencilla
+  const rooms = [];
+  function split(x,y,w,h,depth){
+    if(depth<=0 || w<8 || h<6){
+      // crear sala
+      const rw = randint(Math.max(4,w-4), Math.max(5,w-2));
+      const rh = randint(Math.max(4,h-4), Math.max(5,h-2));
+      const rx = x + randint(1, Math.max(1, w-rw-1));
+      const ry = y + randint(1, Math.max(1, h-rh-1));
+      rooms.push({x:rx,y:ry,w:rw,h:rh});
+      for(let yy=ry; yy<ry+rh; yy++) for(let xx=rx; xx<rx+rw; xx++) map[yy*MAP_W+xx]=1;
+      return;
+    }
+    if(Math.random()<0.5){
+      const splitW = randint(4, w-4);
+      split(x,y,splitW,h,depth-1);
+      split(x+splitW,y,w-splitW,h,depth-1);
+    }else{
+      const splitH = randint(4, h-4);
+      split(x,y,w,splitH,depth-1);
+      split(x,y+splitH,w,h-splitH,depth-1);
+    }
+  }
+  split(1,1,MAP_W-2,MAP_H-2,5);
+  // conectar salas con corredores simples: centro a centro
+  for(let i=1;i<rooms.length;i++){
+    const a=rooms[i-1], b=rooms[i];
+    const ax=Math.floor(a.x+a.w/2), ay=Math.floor(a.y+a.h/2);
+    const bx=Math.floor(b.x+b.w/2), by=Math.floor(b.y+b.h/2);
+    if(Math.random()<0.5){
+      for(let x=Math.min(ax,bx); x<=Math.max(ax,bx); x++) map[ay*MAP_W+x]=1;
+      for(let y=Math.min(ay,by); y<=Math.max(ay,by); y++) map[y*MAP_W+bx]=1;
+    }else{
+      for(let y=Math.min(ay,by); y<=Math.max(ay,by); y++) map[y*MAP_W+ax]=1;
+      for(let x=Math.min(ax,bx); x<=Math.max(ax,bx); x++) map[by*MAP_W+x]=1;
+    }
+  }
+
+  // Limpiar islas pequeñas
+  // colocar puertas, items, enemigos
+  enemies=[]; items=[];
+  // find potential floor tiles
+  const floors=[]; for(let y=0;y<MAP_H;y++) for(let x=0;x<MAP_W;x++) if(map[y*MAP_W+x]==1) floors.push({x,y});
+  // lugar de spawn en centro de la primera sala
+  const start = floors[Math.floor(floors.length*0.02) || 0];
+  player.x = start.x; player.y = start.y; player.hp = player.maxHp;
+
+  // generar enemigos según nivel
+  const enemyCount = Math.min(18, Math.floor(floors.length/60) + level*2);
+  for(let i=0;i<enemyCount;i++){
+    const f = floors[Math.floor(rand()*floors.length)];
+    const e = new Entity(f.x,f.y); e.hp = 6 + Math.floor(level*2*rand()); e.maxHp = e.hp; e.char='E'; e.color='#aee5ef'; e.type='goblin';
+    enemies.push(e);
+  }
+  // items
+  const itemCount = Math.min(10, Math.floor(level*1.5)+3);
+  for(let i=0;i<itemCount;i++){
+    const f = floors[Math.floor(rand()*floors.length)];
+    items.push({x:f.x,y:f.y, kind: (Math.random()<0.4? 'potion': (Math.random()<0.6? 'gold':'scroll')), qty:1 });
+  }
+}
+
+// --- Sistema simple de pathfinding (BFS) para enemigos ---
+function findPath(sx,sy,tx,ty, maxSteps=1000){
+  if(sx===tx && sy===ty) return [];
+  const q=[{x:sx,y:sy,prev:-1}];
+  const seen = new Uint8Array(MAP_W*MAP_H);
+  seen[sy*MAP_W+sx]=1;
+  let idx=0; let found=-1;
+  while(idx<q.length && q.length<maxSteps){
+    const cur = q[idx];
+    const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+    for(const d of dirs){
+      const nx=cur.x+d[0], ny=cur.y+d[1];
+      if(nx<0||ny<0||nx>=MAP_W||ny>=MAP_H) continue;
+      if(seen[ny*MAP_W+nx]) continue;
+      if(map[ny*MAP_W+nx]===0) continue;
+      seen[ny*MAP_W+nx]=1;
+      q.push({x:nx,y:ny,prev:idx});
+      if(nx===tx && ny===ty){ found = q.length-1; idx=q.length; break; }
+    }
+    idx++;
+  }
+  if(found<0) return null;
+  // reconstruir
+  const path=[]; let cur=found;
+  while(q[cur].prev!==-1){ path.push({x:q[cur].x,y:q[cur].y}); cur=q[cur].prev; }
+  path.reverse(); return path;
+}
+
+// --- Renderizado ---
+function draw(){
+  // background
+  ctx.fillStyle='#ede3a6'; ctx.fillRect(0,0,W,H);
+  // calcular vista centrada en jugador
+  const viewW = Math.floor(W / TILE);
+  const viewH = Math.floor(H / TILE);
+  const camX = Math.max(0, Math.min(MAP_W - viewW, player.x - Math.floor(viewW/2)));
+  const camY = Math.max(0, Math.min(MAP_H - viewH, player.y - Math.floor(viewH/2)));
+
+  // dibujar tiles
+  for(let y=0;y<viewH;y++){
+    for(let x=0;x<viewW;x++){
+      const mx = x + camX, my = y + camY;
+      const t = map[my*MAP_W + mx];
+      const sx = x*TILE, sy = y*TILE;
+      if(t===0){
+        // pared
+        ctx.fillStyle = '#1b4084'; ctx.fillRect(sx,sy,TILE,TILE);
+        // rugosidad
+        if((mx+my)%2===0){ctx.fillStyle='rgba(255,255,255,0.02)'; ctx.fillRect(sx+4,sy+4,4,4)}
+      }else{
+        ctx.fillStyle = '#eee3a6'; ctx.fillRect(sx,sy,TILE,TILE);
+        // suelo
+        ctx.fillStyle = 'rgba(255,255,255,0.02)'; ctx.fillRect(sx+2,sy+2,4,4);
+      }
+    }
+  }
+  // dibujar objetos
+  function toScreen(tx,ty){return {x:(tx-camX)*TILE + TILE/2, y:(ty-camY)*TILE + TILE/2};}
+  for(const it of items){
+    const s = toScreen(it.x,it.y);
+    ctx.fillStyle = it.kind==='potion'? '#ffffff' : it.kind==='gold'? '#1f2999' : '#5dcd2a';
+    ctx.beginPath(); ctx.arc(s.x, s.y, TILE*0.22, 0, Math.PI*2); ctx.fill();
+  }
+  // enemigos
+  for(const e of enemies){
+    const s = toScreen(e.x,e.y);
+    ctx.fillStyle = e.color; ctx.beginPath(); ctx.arc(s.x, s.y, TILE*0.36, 0, Math.PI*2); ctx.fill();
+    // vida
+    ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(s.x-14, s.y-20, 28,5);
+    ctx.fillStyle='#b83f26'; ctx.fillRect(s.x-14, s.y-20, 28 * Math.max(0,e.hp/e.maxHp),5);
+  }
+  // jugador
+  const ps = toScreen(player.x, player.y);
+  ctx.fillStyle = '#dea25e'; ctx.beginPath(); ctx.arc(ps.x, ps.y, TILE*0.5, 0, Math.PI*2); ctx.fill();
+  // HUD actual
+  document.getElementById('hudDepth').innerText = `Nivel: ${level}`;
+  document.getElementById('hudHP').innerText = `HP: ${player.hp} / ${player.maxHp}`;
+
+  // partículas
+  for(const p of particles){
+    ctx.globalAlpha = p.life/ p.maxLife;
+    ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.size,0,Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // minimapa
+  drawMinimap(camX, camY, viewW, viewH);
+}
+
+function drawMinimap(camX, camY, viewW, viewH){
+  const el = document.getElementById('miniMap');
+  el.innerHTML = '';
+  const mm = document.createElement('canvas'); mm.width = 160; mm.height = 120; el.appendChild(mm);
+  const mctx = mm.getContext('2d');
+  const sx = Math.floor(mm.width / viewW), sy = Math.floor(mm.height / viewH);
+  mctx.fillStyle='#07121a'; mctx.fillRect(0,0,mm.width,mm.height);
+  for(let y=0;y<viewH;y++) for(let x=0;x<viewW;x++){
+    const mx=x+camX, my=y+camY; if(mx<0||my<0||mx>=MAP_W||my>=MAP_H) continue;
+    const t = map[my*MAP_W+mx]; mctx.fillStyle = t? '#ede3a6' : '#041015';
+    mctx.fillRect(x*sx,y*sy,sx,sy);
+  }
+  // draw entities
+  mctx.fillStyle='#60a5fa'; mctx.fillRect((player.x-camX)*sx-2,(player.y-camY)*sy-2,4,4);
+}
+
+// --- Lógica de juego ---
+let keys = {};
+window.addEventListener('keydown', e=>{ keys[e.key.toLowerCase()]=true; e.preventDefault(); });
+window.addEventListener('keyup', e=>{ keys[e.key.toLowerCase()]=false; });
+
+function canWalk(x,y){ if(x<0||y<0||x>=MAP_W||y>=MAP_H) return false; return map[y*MAP_W + x]===1; }
+
+function update(dt){
+  // movimiento por teclado (hasta 1 tile por pulsación)
+  const moveSpeed = 0.15; // segundos por movimiento
+  if(!player.moveTimer) player.moveTimer=0;
+  player.moveTimer -= dt;
+  if(player.moveTimer<=0){
+    let dx=0, dy=0;
+    if(keys['arrowup']||keys['w']) dy=-1;
+    if(keys['arrowdown']||keys['s']) dy=1;
+    if(keys['arrowleft']||keys['a']) dx=-1;
+    if(keys['arrowright']||keys['d']) dx=1;
+    if(dx!==0||dy!==0){
+      const nx=player.x+dx, ny=player.y+dy;
+      if(canWalk(nx,ny) && !entityAt(nx,ny)){
+        player.x=nx; player.y=ny; player.moveTimer = moveSpeed; log(`Te mueves a ${nx},${ny}`);
+        // pickup items
+        pickupAt(nx,ny);
+      }else if(entityAt(nx,ny)){
+        attackAt(nx,ny);
+      }
+    }
+  }
+
+  // enemigos: comportamiento simple
+  for(const e of enemies){
+    if(e._thinkTimer===undefined) e._thinkTimer=randint(10,50)/30;
+    e._thinkTimer -= dt;
+    if(e._thinkTimer<=0){
+      e._thinkTimer = randint(30,90)/60;
+      const dist = Math.abs(e.x-player.x)+Math.abs(e.y-player.y);
+      if(dist<=1){
+        // atacar
+        player.hp -= randint(1,4);
+        spawnParticles((e.x-player.x)*TILE + W/2, (e.y-player.y)*TILE + H/2, 6, '#ffffff');
+        log(`${e.type} golpea al jugador por daño`);
+      }else if(dist<10){
+        const path = findPath(e.x,e.y,player.x,player.y, 400);
+        if(path && path.length>0 && canWalk(path[0].x, path[0].y) && !entityAt(path[0].x, path[0].y)){
+          e.x = path[0].x; e.y = path[0].y;
+        }
+      }else{
+        // deambular aleatorio
+        if(Math.random()<0.6){
+          const dirs=[[1,0],[-1,0],[0,1],[0,-1]]; const d=dirs[Math.floor(rand()*dirs.length)];
+          const nx=e.x+d[0], ny=e.y+d[1]; if(canWalk(nx,ny) && !entityAt(nx,ny)) { e.x=nx; e.y=ny; }
+        }
+      }
+    }
+  }
+
+  // partículas
+  for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.life-=dt; if(p.life<=0) particles.splice(i,1); else { p.x+=p.vx*dt; p.y+=p.vy*dt; } }
+
+  // check death
+  for(let i=enemies.length-1;i>=0;i--){ if(enemies[i].hp<=0){ log(`${enemies[i].type} derrotado`); spawnParticles(enemies[i].x*TILE + TILE/2, enemies[i].y*TILE + TILE/2, 16, '#ffffff'); enemies.splice(i,1); } }
+  if(player.hp<=0){ log('Has muerto. Usa reset para reiniciar.'); player.hp=0; }
+}
+
+function entityAt(x,y){ if(player.x===x && player.y===y) return player; for(const e of enemies) if(e.x===x && e.y===y) return e; return null; }
+
+function pickupAt(x,y){ for(let i=items.length-1;i>=0;i--){ const it=items[i]; if(it.x===x && it.y===y){ applyItem(it); items.splice(i,1); } } }
+function applyItem(it){ if(it.kind==='potion'){ player.hp = Math.min(player.maxHp, player.hp + 10); log('Bebes una poción: +10 HP'); } else if(it.kind==='gold'){ addToInventory('Oro', it.qty); log('Recoges oro'); } else if(it.kind==='scroll'){ addToInventory('Pergamino',1); log('Encuentras un pergamino misterioso'); } }
+
+function addToInventory(name, qty){ const inv = window.gameState.inventory; inv.push({name,qty}); renderInventory(); }
+
+function renderInventory(){ const el = document.getElementById('inventory'); el.innerHTML=''; for(const it of window.gameState.inventory){ const d=document.createElement('div'); d.className='slot'; d.title=`${it.name} x${it.qty}`; d.innerText = it.name[0]; el.appendChild(d); } }
+
+function attackAt(x,y){ const ent = entityAt(x,y); if(ent && ent!==player){ const dmg = randint(2,6); ent.hp -= dmg; log(`Atacas y haces ${dmg} daño a ${ent.type||'enemigo'}`); spawnParticles((x)*TILE + TILE/2, (y)*TILE + TILE/2, 6, '#ffffff'); } }
+
+function spawnParticles(x,y,count,color){ for(let i=0;i<count;i++){ particles.push({x,y,vx:(rand()-0.5)*60, vy:(rand()-0.5)*60, life:0.6 + rand()*0.6, maxLife:1, size:2+rand()*3, color}); } }
+
+// --- Registro y UI ---
+function log(text){ const el=document.getElementById('log'); const t = document.createElement('div'); t.innerText = `[${new Date().toLocaleTimeString()}] ${text}`; el.prepend(t); }
+
+// --- Guardado ---
+window.gameState = { level, inventory: [] };
+function saveGame(){ const state = {player:{x:player.x,y:player.y,hp:player.hp,maxHp:player.maxHp}, enemies:enemies.map(e=>({x:e.x,y:e.y,hp:e.hp,type:e.type})), items, level, rngSeed, inventory:window.gameState.inventory};
+  localStorage.setItem('dungeon.save', JSON.stringify(state)); log('Juego guardado'); }
+function loadGame(){ const data = localStorage.getItem('dungeon.save'); if(!data) { log('No hay partida guardada'); return; }
+  const s = JSON.parse(data); player.x = s.player.x; player.y = s.player.y; player.hp=s.player.hp; player.maxHp=s.player.maxHp; enemies = s.enemies.map(e=>{ const en=new Entity(e.x,e.y); en.hp=e.hp; en.maxHp=e.hp; en.type=e.type; en.color='#ffffff'; return en; }); items = s.items || []; level = s.level || 1; rngSeed = s.rngSeed || rngSeed; window.gameState.inventory = s.inventory || []; renderInventory(); log('Partida cargada'); }
+
+function resetGame(){ level=1; window.gameState.inventory=[]; rngSeed = Math.floor(Math.random()*1e9); generateDungeon(); renderInventory(); log('Juego reiniciado'); }
+
+// --- Botones ---
+document.getElementById('btnSave').addEventListener('click', saveGame);
+document.getElementById('btnLoad').addEventListener('click', loadGame);
+document.getElementById('btnReset').addEventListener('click', ()=>{ if(confirm('Reiniciar la partida?')) resetGame(); });
+document.getElementById('btnNextLevel').addEventListener('click', ()=>{ level++; player.maxHp += 4; player.hp = player.maxHp; rngSeed ^= Date.now(); generateDungeon(); log('Desciendes al siguiente nivel'); });
+
+document.getElementById('btnUp').addEventListener('click', ()=>{ keys['w']=true; setTimeout(()=>keys['w']=false,120); });
+document.getElementById('btnDown').addEventListener('click', ()=>{ keys['s']=true; setTimeout(()=>keys['s']=false,120); });
+document.getElementById('btnLeft').addEventListener('click', ()=>{ keys['a']=true; setTimeout(()=>keys['a']=false,120); });
+document.getElementById('btnRight').addEventListener('click', ()=>{ keys['d']=true; setTimeout(()=>keys['d']=false,120); });
+document.getElementById('btnAttack').addEventListener('click', ()=>{ // ataque en la dirección que mira - simple: golpea cualquier enemigo adyacente
+  for(const d of [[1,0],[-1,0],[0,1],[0,-1]]){ const e=entityAt(player.x+d[0], player.y+d[1]); if(e && e!==player){ attackAt(e.x,e.y); break; } }
+});
+
+// --- Inicialización ---
+function init(){ player = new Entity(2,2); player.maxHp = 30; player.hp = 30; player.type='player'; player.char='@'; player.color='#ffffff'; window.gameState.inventory = [];
+  generateDungeon(); renderInventory(); log('Bienvenido a Dungeon Arcanum'); lastTime = performance.now(); loop(); }
+
+let lastTime=0; function loop(t){ const dt = Math.min(0.05, (t - lastTime)/1000); update(dt); draw(); lastTime = t; requestAnimationFrame(loop); }
+
+// --- guardar periódicamente ---
+setInterval(()=>{ saveGame(); }, 30000);
+
+// iniciar
+init();
+
+// Accessibilidad: toque en canvas para atacar / mover
+canvas.addEventListener('click', (ev)=>{
+  const rect = canvas.getBoundingClientRect(); const cx = ev.clientX - rect.left; const cy = ev.clientY - rect.top;
+  const viewW = Math.floor(W / TILE); const viewH = Math.floor(H / TILE);
+  const camX = Math.max(0, Math.min(MAP_W - viewW, player.x - Math.floor(viewW/2)));
+  const camY = Math.max(0, Math.min(MAP_H - viewH, player.y - Math.floor(viewH/2)));
+  const tx = Math.floor(cx / TILE) + camX, ty = Math.floor(cy / TILE) + camY;
+  // mover hacia la celda si es caminable
+  if(canWalk(tx,ty) && !entityAt(tx,ty)){
+    player.x = tx; player.y = ty; pickupAt(tx,ty); log('Te mueves haciendo clic');
+  } else if(entityAt(tx,ty) && entityAt(tx,ty)!==player){ attackAt(tx,ty); }
+});
+
+// Exponer simples comandos en consola para debug
+window.Dungeon = { generateDungeon, player: ()=>player, enemies: ()=>enemies, items: ()=>items };
+</script></body>
+</html>
